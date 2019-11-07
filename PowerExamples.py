@@ -51,6 +51,7 @@ def main():
     # Wait for device to power up and become ready (you can start your workloads here if needed)
     time.sleep(5)
     # Request a list of all USB and LAN accessible modules
+    print ("-Select a device, MUST be USB or TCP (not REST)")
     myDeviceID = myQis.GetQisModuleSelection()
     # Specify the device to connect to, we are using a local version of QIS here, otherwise specify "QIS:192.168.1.101:9722"
     myQuarchDevice = quarchDevice (myDeviceID, ConType = "QIS")
@@ -73,14 +74,19 @@ def main():
     if (msg != "OK"):
         print ("Failed to set hardware averaging: " + msg)
     # Set the resampling mode to give us exactly 100uS
-   # msg = myQisDevice.sendCommand ("stream mode resample 100us")
-    #if (msg != "OK"):
-     #   print ("Failed to set software resampling: " + msg)
+    msg = myQisDevice.sendCommand ("stream mode resample 100us")
+    if (msg != "OK"):
+        print ("Failed to set software resampling: " + msg)
+    # Ask QIS to include power calculations
+    msg = myQisDevice.sendCommand ("stream mode power enable")
+    # Ask QIS to include power total
+    msg = myQisDevice.sendCommand ("stream mode power total enable")
+
 
     print ("-Recording data...")
     # Start a stream, using the local folder of the script and a time-stamp file name in this example
     fileName = "RawData100us.csv"        
-    myQisDevice.startStream (streamPath + "\\" + fileName, 2000, 'Example stream to file with 2000Mb limit')
+    myQisDevice.startStream (streamPath + "\\" + fileName, 2000, 'Example stream to file with 2000Mb limit',separator=",")
            
     # Wait for a few seconds to record data then stop the stream
     time.sleep(5)    
@@ -108,7 +114,7 @@ def main():
 # Assumes standard channels are enabled for this example, this could be automated by parsing the stream header to see the record channels
 def post_process_resample (raw_file_path, resample_count, output_file_path):    
     # Init variables
-    firstLine = True
+    headerLines = 0
     stripeCount = 0
     dilimiter = ","
     number_of_columns = 9
@@ -125,9 +131,9 @@ def post_process_resample (raw_file_path, resample_count, output_file_path):
             # Iterate through all input files
             for fileLine in rawFile:
                 # headerline is unique, copy it directly
-                if (firstLine == True):
+                if (headerLines < 2):
                     postFile.write (fileLine + "\n")
-                    firstLine = False
+                    headerLines = headerLines + 1
                     continue
 
                 # Accumulate the required number of lines                
