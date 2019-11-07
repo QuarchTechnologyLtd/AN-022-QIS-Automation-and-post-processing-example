@@ -17,7 +17,6 @@ We will record at a high rate and post process down to a lower rate, ending with
 ####################################
 '''
 
-myDeviceID = "tcp::QTL1999-05-006"
 
 import os, time
 
@@ -47,8 +46,12 @@ def main():
     # Checks is QIS is running on the localhost
     if not isQisRunning():
     # Start the version on QIS installed with the quarchpy, otherwise use the running version
-        startLocalQis()    
-
+        startLocalQis()
+    myQis = qisInterface()
+    # Wait for device to power up and become ready (you can start your workloads here if needed)
+    time.sleep(5)
+    # Request a list of all USB and LAN accessible modules
+    myDeviceID = myQis.GetQisModuleSelection()
     # Specify the device to connect to, we are using a local version of QIS here, otherwise specify "QIS:192.168.1.101:9722"
     myQuarchDevice = quarchDevice (myDeviceID, ConType = "QIS")
     # Convert the base device to a power device class
@@ -59,11 +62,12 @@ def main():
     
     print ("-Waiting for drive to be ready")
     # Setup the voltage mode and enable the outputs.  This is used so the script is compatible with older XLC modules which do not autodetect the fixtures
-    setupPowerOutput (myQisDevice)    
-    # Wait for device to power up and become ready (you can start your workloads here if needed)
-    time.sleep(5)
-    
+    setupPowerOutput (myQisDevice)
+
     print ("-Setting up module record parameters")
+
+    # Sets for a manual record trigger, so we can start the stream from the script
+    print(myQisDevice.sendCommand("record:trigger:mode manual"))
     # Set the averaging rate to the module to 16 (64uS) as the closest to 100uS
     msg = myQisDevice.sendCommand ("record:averaging 16")   
     if (msg != "OK"):
