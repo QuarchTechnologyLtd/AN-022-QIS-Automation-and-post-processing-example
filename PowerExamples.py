@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 '''
-This example demonstrates basic automation with QPS and post processing of raw data after recording.
+This example demonstrates basic automation with QIS and post processing of raw data after recording.
 We will record at a high rate and post process down to a lower rate, ending with 100uS and 500uS sample rates
 
 ########### VERSION HISTORY ###########
@@ -11,19 +11,20 @@ We will record at a high rate and post process down to a lower rate, ending with
 
 1- Connect a Quarch power module to your PC via USB or LAN and power it on
 2- Ensure quarcypy is installed
-2- On startup, select the options for the device you wish to test
+3- Set the text ID of the PPM you want to connect to in myDeviceID
 
-NOTE: QPS v1.09 does not support spaces in the CSV output path, so this script must be run in a folder path with no space
-      or alter the output path to a suitable folder
 
 ####################################
 '''
 
+myDeviceID = "tcp::QTL1999-05-006"
+
 import os, time
 
 import quarchpy
+from quarchpy import qisInterface
 from quarchpy.device import *
-from quarchpy.qps import *
+from quarchpy.qis import *
 
 # Path where stream will be saved to (defaults to current script path)
 streamPath = os.path.dirname(os.path.realpath(__file__))
@@ -39,66 +40,56 @@ def main():
     # Display title text
     print ("\n################################################################################\n")
     print ("\n                           QUARCH TECHNOLOGY                                  \n\n")
-    print ("Automated capture and post processing with Quarch Power Studio.                     ")
+    print ("Automated capture and post processing with Quarch Instrument Server (QIS).          ")
     print ("\n################################################################################\n")  
 
-    print ("-Starting QPS")
-    # Checks is QPS is running on the localhost
-    if not isQpsRunning():
-    # Start the version on QPS installed with the quarchpy, otherwise use the running version
-        startLocalQps(keepQisRunning=True)    
+    print ("-Starting QIS")
+    # Checks is QIS is running on the localhost
+    if not isQisRunning():
+    # Start the version on QIS installed with the quarchpy, otherwise use the running version
+        startLocalQis()    
 
-    # Open an interface to local QPS
-    myQps = qpsInterface()
-    
-    print ("-Requesting module selection")
-    # Module to work with
-    myDeviceID = GetQpsModuleSelection (myQps)
-
-    # Create a Quarch device connected via QPS
-    myQuarchDevice = quarchDevice (myDeviceID, ConType = "QPS")
-    
-    # Upgrade Quarch device to QPS device
-    myQpsDevice = quarchQPS(myQuarchDevice)
-    myQpsDevice.openConnection()
+    # Specify the device to connect to, we are using a local version of QIS here, otherwise specify "QIS:192.168.1.101:9722"
+    myQuarchDevice = quarchDevice (myDeviceID, ConType = "QIS")
+    # Convert the base device to a power device class
+    myQisDevice = quarchPPM (myQuarchDevice)
 
     # Prints out connected module information        
-    print ("MODULE CONNECTED: \n" + myQpsDevice.sendCommand ("*idn?"))
+    print ("MODULE CONNECTED: \n" + myQisDevice.sendCommand ("*idn?"))
     
     print ("-Waiting for drive to be ready")
     # Setup the voltage mode and enable the outputs.  This is used so the script is compatible with older XLC modules which do not autodetect the fixtures
-    setupPowerOutput (myQpsDevice)    
+    setupPowerOutput (myQisDevice)    
     # Wait for device to power up and become ready (you can start your workloads here if needed)
     time.sleep(5)
     
     print ("-Setting up module record parameters")
     # Set the averaging rate to the module to 16 (64uS) as the closest to 100uS
-    msg = myQpsDevice.sendCommand ("record:averaging 16")   
+    msg = myQisDevice.sendCommand ("record:averaging 16")   
     if (msg != "OK"):
         print ("Failed to set hardware averaging: " + msg)
     # Set the resampling mode to give us exactly 100uS
-    msg = myQpsDevice.sendCommand ("stream mode resample 100us")
-    if (msg != "OK"):
-        print ("Failed to set software resampling: " + msg)
+   # msg = myQisDevice.sendCommand ("stream mode resample 100us")
+    #if (msg != "OK"):
+     #   print ("Failed to set software resampling: " + msg)
 
     print ("-Recording data...")
     # Start a stream, using the local folder of the script and a time-stamp file name in this example
-    fileName = time.strftime("%Y-%m-%d-%H-%M-%S", time.gmtime())        
-    myStream = myQpsDevice.startStream (streamPath + "\\" + fileName)
-
+    fileName = "RawData100us.csv"        
+    myQisDevice.startStream (streamPath + "\\" + fileName, 2000, 'Example stream to file with 2000Mb limit')
+           
     # Wait for a few seconds to record data then stop the stream
     time.sleep(5)    
-    myStream.stopStream()
-    # Wait for remaining stream data to save and complete, otherwise the export will fail
+    myQisDevice.stopStream()
+    print ("-Completing recording")
+    # Wait for remaining stream data to complete
     time.sleep(2)   
 
+    print ("-Closing module")
+    myQisDevice.closeConnection()
+
     # Request raw CSV data from the stream, into the local folder (NOTE: current QPS does not support spaces in the export path)
-    rawOutputPath = streamPath + "\\RawData100us.csv"    
-    export_command = "$save csv \"" + rawOutputPath + "\" -l1000000"    
-    print (export_command)
-    msg = myQpsDevice.sendCommand (export_command)
-    if (msg != "OK"):
-        print ("Failed export CSV data: " + msg)
+    rawOutputPath = streamPath + "\\RawData100us.csv"        
 
     # Run the post process step.  The first one is purely for the stats calculations, as we alredy have it in the correct sample rate
     print ("-Post processing step 1")
