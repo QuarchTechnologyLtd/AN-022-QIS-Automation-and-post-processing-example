@@ -51,7 +51,7 @@ def main():
         startLocalQis()
     myQis = qisInterface() 
     # Wait for QIS to find modules, this will be handled in GetQisModuleSelection soon
-    time.sleep(1)
+    time.sleep(2)
     
     # Request a list of all USB and LAN accessible modules
     print ("-Select a device, MUST be USB or TCP (not REST)")
