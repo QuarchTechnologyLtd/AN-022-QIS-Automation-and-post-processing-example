@@ -24,6 +24,8 @@ import quarchpy
 from quarchpy import qisInterface
 from quarchpy.device import *
 from quarchpy.qis import *
+# Timing to check how long it takes to end the stream
+from timeit import default_timer as timer
 
 # Path where stream will be saved to (defaults to current script path)
 streamPath = os.path.dirname(os.path.realpath(__file__))
@@ -47,9 +49,10 @@ def main():
     if not isQisRunning():
     # Start the version on QIS installed with the quarchpy, otherwise use the running version
         startLocalQis()
-    myQis = qisInterface()
-    # Wait for device to power up and become ready (you can start your workloads here if needed)
-    time.sleep(5)
+    myQis = qisInterface() 
+    # Wait for QIS to find modules, this will be handled in GetQisModuleSelection soon
+    time.sleep(1)
+    
     # Request a list of all USB and LAN accessible modules
     print ("-Select a device, MUST be USB or TCP (not REST)")
     myDeviceID = myQis.GetQisModuleSelection()
@@ -65,22 +68,31 @@ def main():
     # Setup the voltage mode and enable the outputs.  This is used so the script is compatible with older XLC modules which do not autodetect the fixtures
     setupPowerOutput (myQisDevice)
 
+    # (OPTIONAL) Wait for device to power up and become ready (you can also start your workloads here if needed)
+    # time.sleep(5)
+
     print ("-Setting up module record parameters")
 
     # Sets for a manual record trigger, so we can start the stream from the script
-    print(myQisDevice.sendCommand("record:trigger:mode manual"))
+    msg = myQisDevice.sendCommand("record:trigger:mode manual")
+    if (msg != "OK"):
+        print ("Failed to set trigger mode: " + msg)
     # Set the averaging rate to the module to 16 (64uS) as the closest to 100uS
     msg = myQisDevice.sendCommand ("record:averaging 16")   
     if (msg != "OK"):
         print ("Failed to set hardware averaging: " + msg)
     # Set the resampling mode to give us exactly 100uS
-    msg = myQisDevice.sendCommand ("stream mode resample 100us")
+    msg = myQisDevice.sendCommand ("stream mode resample 100uS")
     if (msg != "OK"):
         print ("Failed to set software resampling: " + msg)
     # Ask QIS to include power calculations
     msg = myQisDevice.sendCommand ("stream mode power enable")
+    if (msg != "OK"):
+        print ("Failed to set power record mode: " + msg)
     # Ask QIS to include power total
     msg = myQisDevice.sendCommand ("stream mode power total enable")
+    if (msg != "OK"):
+        print ("Failed to set total power record mode: " + msg)
 
 
     print ("-Recording data...")
@@ -88,12 +100,16 @@ def main():
     fileName = "RawData100us.csv"        
     myQisDevice.startStream (streamPath + "\\" + fileName, 2000, 'Example stream to file with 2000Mb limit',separator=",")
            
-    # Wait for a few seconds to record data then stop the stream
-    time.sleep(5)    
-    myQisDevice.stopStream()
-    print ("-Completing recording")
-    # Wait for remaining stream data to complete
-    time.sleep(2)   
+    # Wait for a few seconds to record data then stop the stream     
+    for x in range(5):
+        time.sleep(1)
+        print (".")
+    
+    print ("-Stopping recording")
+    start = timer()
+    myQisDevice.stopStream()    
+    end = timer()
+    print(str((end - start)) + " Seconds to save the stream")
 
     print ("-Closing module")
     myQisDevice.closeConnection()
