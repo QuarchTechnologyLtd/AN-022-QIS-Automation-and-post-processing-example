@@ -41,21 +41,26 @@ def main():
     # Display title text
     print ("\n################################################################################\n")
     print ("\n                           QUARCH TECHNOLOGY                                  \n\n")
-    print ("Automated capture and post processing with Quarch Instrument Server (QIS).          ")
-    print ("\n################################################################################\n")  
+    print ("     Automated capture and post processing with Quarch Instrument Server (QIS).     ")
+    print ("\n################################################################################\n")
 
-    print ("-Starting QIS")
+
     # Checks is QIS is running on the localhost
     if not isQisRunning():
+        print ("-Starting QIS")
     # Start the version on QIS installed with the quarchpy, otherwise use the running version
         startLocalQis()
+
     myQis = qisInterface() 
     # Wait for QIS to find modules, this will be handled in GetQisModuleSelection soon
     time.sleep(2)
     
     # Request a list of all USB and LAN accessible modules
     print ("-Select a device, MUST be USB or TCP (not REST)")
-    myDeviceID = myQis.GetQisModuleSelection()
+    myDeviceID = myQis.GetQisModuleSelection(additionalOptions=["rescan"])
+    while myDeviceID is "rescan":
+        myDeviceID = myQis.GetQisModuleSelection(additionalOptions=["rescan"])
+
     # Specify the device to connect to, we are using a local version of QIS here, otherwise specify "QIS:192.168.1.101:9722"
     myQuarchDevice = quarchDevice (myDeviceID, ConType = "QIS")
     # Convert the base device to a power device class
