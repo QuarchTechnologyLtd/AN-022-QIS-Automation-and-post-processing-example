@@ -98,6 +98,10 @@ def main():
     msg = myQisDevice.sendCommand ("stream mode power total enable")
     if (msg != "OK"):
         print ("Failed to set total power record mode: " + msg)
+    # Ensure the latest level of header is requested so PPM and PAM data format is the same in the CSV
+    msg = myQisDevice.sendCommand ("stream mode header v3")
+    if (msg != "OK"):
+        print ("Failed to set software resampling: " + msg)
 
 
     print ("-Recording data...")
