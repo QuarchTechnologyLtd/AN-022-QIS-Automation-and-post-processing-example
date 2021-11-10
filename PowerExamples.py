@@ -58,11 +58,11 @@ def main():
     # Request a list of all USB and LAN accessible modules
     print ("-Select a device, MUST be USB or TCP (not REST)")
     myDeviceID = myQis.GetQisModuleSelection(additionalOptions=["rescan"])
-    while myDeviceID is "rescan":
+    while myDeviceID == "rescan":
         myDeviceID = myQis.GetQisModuleSelection(additionalOptions=["rescan"])
 
     # Specify the device to connect to, we are using a local version of QIS here, otherwise specify "QIS:192.168.1.101:9722"
-    myQuarchDevice = quarchDevice (myDeviceID, ConType = "QIS")
+    myQuarchDevice = getQuarchDevice(myDeviceID, ConType = "QIS")
     # Convert the base device to a power device class
     myQisDevice = quarchPPM (myQuarchDevice)
 
@@ -70,9 +70,8 @@ def main():
     print ("MODULE CONNECTED: \n" + myQisDevice.sendCommand ("*idn?"))
     
     print ("-Waiting for drive to be ready")
-    # Setup the voltage mode and enable the outputs.  This is used so the script is compatible with older XLC modules which do not autodetect the fixtures
-    setupPowerOutput (myQisDevice)
-
+    # Setup the voltage mode and enable the outputs. This is used so the script is compatible with older XLC modules which do not autodetect the fixtures
+    myQisDevice.setupPowerOutput()
     # (OPTIONAL) Wait for device to power up and become ready (you can also start your workloads here if needed)
     # time.sleep(5)
 
@@ -207,25 +206,7 @@ def post_process_resample (raw_file_path, resample_count, output_file_path):
             postFile.write ("MIN," + dilimiter.join(str(x) for x in minData) + "\n")
             postFile.write ("AVE," + dilimiter.join(str(x) for x in aveData) + "\n")
 
-'''
-Function to check the output state of the module and prompt to select an output mode if not set already
-'''
-def setupPowerOutput (myModule):
-    # Output mode is set automatically on HD modules using an HD fixture, otherwise we will chose 5V mode for this example
-    if "DISABLED" in myModule.sendCommand("config:output Mode?"):
-        try:
-            drive_voltage = raw_input("\n Either using an HD without an intelligent fixture or an XLC.\n \n>>> Please select a voltage [3V3, 5V]: ") or "3V3" or "5V"
-        except NameError:
-            drive_voltage = input("\n Either using an HD without an intelligent fixture or an XLC.\n \n>>> Please select a voltage [3V3, 5V]: ") or "3V3" or "5V"
 
-        myModule.sendCommand("config:output:mode:"+ drive_voltage)
-    
-    # Check the state of the module and power up if necessary
-    powerState = myModule.sendCommand ("run power?")
-    # If outputs are off
-    if "OFF" in powerState:
-        # Power Up
-        print ("\n Turning the outputs on:"), myModule.sendCommand ("run:power up"), "!"
 
 if __name__=="__main__":
     main()
