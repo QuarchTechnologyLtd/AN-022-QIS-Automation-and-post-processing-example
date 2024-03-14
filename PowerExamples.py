@@ -26,6 +26,7 @@ from quarchpy.device import *
 from quarchpy.qis import *
 # Timing to check how long it takes to end the stream
 from timeit import default_timer as timer
+from quarchpy.user_interface.user_interface import showDialog
 
 # Path where stream will be saved to (defaults to current script path)
 streamPath = os.path.dirname(os.path.realpath(__file__))
@@ -132,8 +133,9 @@ def main():
     post_process_resample (rawOutputPath, 5, streamPath + "\\PostData500us.csv")
     print ("-Post processing step 3")
     post_process_resample (rawOutputPath, 10, streamPath + "\\PostData1ms.csv")
+    showDialog("End of test.")
+    closeQis()
 
-    
 # Post process and resample the CSV file (for now assuming all data is in one file, v1.09 maxes out at 100k lines right now in a single file, this limit will be removed in the next version)    
 # Assumes standard channels are enabled for this example, this could be automated by parsing the stream header to see the record channels
 def post_process_resample (raw_file_path, resample_count, output_file_path):    
