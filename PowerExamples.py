@@ -1,214 +1,246 @@
 #!/usr/bin/env python
-'''
-This example demonstrates basic automation with QIS and post processing of raw data after recording.
-We will record at a high rate and post process down to a lower rate, ending with 100uS and 500uS sample rates
+"""
+This example demonstrates basic automation with QIS and post-processing of raw data after recording.
+We will record at a high rate and post-process down to a lower rate, ending with 100uS and 500uS sample rates
 
-########### VERSION HISTORY ###########
+The resampling implementation is basic and currently coded for a PPM Plus which has a fixed number of
+columns in the CSV file.  It could be expanded for a PAM with a higher number of channels.
 
-03/10/2019 - Andy Norrie     - First Version
+########### REQUIREMENTS ###########
+
+1- Python 3, a recent version is recommended
+    https://www.python.org/downloads/
+2- Quarchpy python package
+    https://quarch.com/products/quarchpy-python-package/
+3- Quarch USB driver (Required for USB connected devices on windows only)
+    https://quarch.com/downloads/driver/
+4- Check USB permissions if using Linux:
+    https://quarch.com/support/faqs/usb/
 
 ########### INSTRUCTIONS ###########
 
-1- Connect a Quarch power module to your PC via USB or LAN and power it on
+1- Connect a Quarch PPM connected to your PC via USB or LAN and power it on
 2- Ensure quarcypy is installed
-3- Set the text ID of the PPM you want to connect to in myDeviceID
-
+3- Run the script
 
 ####################################
-'''
+"""
 
 
 import os, time
-
+import logging
 import quarchpy
-from quarchpy import qisInterface
 from quarchpy.device import *
 from quarchpy.qis import *
-# Timing to check how long it takes to end the stream
-from timeit import default_timer as timer
-from quarchpy.user_interface.user_interface import showDialog
+from quarchpy.user_interface import visual_sleep
 
-# Path where stream will be saved to (defaults to current script path)
-streamPath = os.path.dirname(os.path.realpath(__file__))
+# Path where stream will be saved to (defaults to the current script path)
+stream_path = os.path.dirname(os.path.realpath(__file__))
 
-'''
-Main function, containing the example code to execute
-'''
-def main():
+def main() -> None:
+    """
+    Simple main function to run the example code
+
+    Returns:
+        None
+
+    """
+
+    # If required, you can enable python logging, quarchpy supports this, and your log file
+    # will show the process of scanning devices and sending the commands.  Just comment out
+    # the line below.  This can be useful to send to quarch if you encounter errors
+    # logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBUG)
 
     # Required min version for this application note
     quarchpy.requiredQuarchpyVersion ("2.0.9")
-    
-    # Display title text
-    print ("\n################################################################################\n")
-    print ("\n                           QUARCH TECHNOLOGY                                  \n\n")
-    print ("     Automated capture and post processing with Quarch Instrument Server (QIS).     ")
-    print ("\n################################################################################\n")
 
+    print("\n\nQuarch application note example: AN-022")
+    print("-------------------------------------------")
 
-    # Checks is QIS is running on the localhost
+    # Start QIS (if it is already running, skip this step and also avoid closing it at the end)
+    # This is just to be helpful as you may want to run against an already loaded instance of QIS
+    print("Checking for QIS...")
+    close_qis_at_end_of_test = False
     if not isQisRunning():
-        print ("-Starting QIS")
-    # Start the version on QIS installed with the quarchpy, otherwise use the running version
+        print("Starting QIS")
         startLocalQis()
+        close_qis_at_end_of_test = True
+    else:
+        print("QIS already running. Using this instance.")
 
-    myQis = qisInterface() 
-    # Wait for QIS to find modules, this will be handled in GetQisModuleSelection soon
-    time.sleep(2)
-    
-    # Request a list of all USB and LAN accessible modules
-    print ("-Select a device, MUST be USB or TCP (not REST)")
-    myDeviceID = myQis.GetQisModuleSelection(additionalOptions=["rescan"])
-    while myDeviceID == "rescan":
-        myDeviceID = myQis.GetQisModuleSelection(additionalOptions=["rescan"])
+    # Connect to the localhost QIS instance and demonstrate a simple command which in this case
+    # returns the QIS version string
+    my_qis = QisInterface()
+    print("QIS Version: " + my_qis.sendCommand('$version') + "\n\n")
 
-    # Specify the device to connect to, we are using a local version of QIS here, otherwise specify "QIS:192.168.1.101:9722"
-    myQuarchDevice = getQuarchDevice(myDeviceID, ConType = "QIS")
-    # Convert the base device to a power device class
-    myQisDevice = quarchPPM (myQuarchDevice)
+    # Use the module selection helper dialog which prompts the user to select a module to talk to.
+    # We can supply additional options to the dialog, such as 'quit' (which we can handle), the others
+    # are handled internally to give additional options (rescanning after you remember to turn the power on to the
+    # device, for example!)
+    my_device_id = my_qis.GetQisModuleSelection(additionalOptions=['Rescan', 'All Con Types', 'Ip Scan', 'Quit'])
+    # Exit cleanly on quit request
+    if my_device_id.lower() == "quit":
+        print("User Selected Quit.")
+        if close_qis_at_end_of_test:
+            closeQis()
+        return
 
-    # Prints out connected module information        
-    print ("MODULE CONNECTED: \n" + myQisDevice.sendCommand ("*idn?"))
-    
-    print ("-Waiting for drive to be ready")
-    # Setup the voltage mode and enable the outputs. This is used so the script is compatible with older XLC modules which do not autodetect the fixtures
-    myQisDevice.setupPowerOutput()
-    # (OPTIONAL) Wait for device to power up and become ready (you can also start your workloads here if needed)
+    # The return from the module selection is a device ID string that we can use to connect to.
+    # If you know the name of the module you would like to talk to, then you can skip module selection and
+    # hardcode the string using the serial number or IP address
+    print("Module Selected: " + my_device_id + "\n")
+    # my_device_id = "USB:QTL1999-05-005"
+    # my_device_id = "TCP:192168.1.25"
+
+    # Connect to the module, we request a QIS type connection
+    my_quarch_device = getQuarchDevice(my_device_id, ConType="QIS")
+
+    # Convert the base device class to a power device, which provides additional controls, such as data streaming
+    my_power_device = quarchPPM(my_quarch_device)
+
+    # Some quarch devices have a power output which is disabled by default, so we can enable it here using a helper
+    # function that will work for all standard devices.  You could also send the "run:power up" command directly
+    # which will work for most devices.
+    my_power_device.setupPowerOutput()
+    # (OPTIONAL) Wait for your device to power up and become ready (you can also start your workloads here if needed)
     # time.sleep(5)
 
     print ("-Setting up module record parameters")
 
-    # Sets for a manual record trigger, so we can start the stream from the script
-    msg = myQisDevice.sendCommand("record:trigger:mode manual")
-    if (msg != "OK"):
-        print ("Failed to set trigger mode: " + msg)
-    # Set the averaging rate to the module to 16 (64uS) as the closest to 100uS
-    msg = myQisDevice.sendCommand ("record:averaging 16")   
-    if (msg != "OK"):
-        print ("Failed to set hardware averaging: " + msg)
-    # Set the resampling mode to give us exactly 100uS
-    msg = myQisDevice.sendCommand ("stream mode resample 100uS")
-    if (msg != "OK"):
+    msg = my_power_device.sendCommand ("stream mode resample 100uS")
+    if msg != "OK":
         print ("Failed to set software resampling: " + msg)
-    # Ask QIS to include power calculations
-    msg = myQisDevice.sendCommand ("stream mode power enable")
-    if (msg != "OK"):
-        print ("Failed to set power record mode: " + msg)
-    # Ask QIS to include power total
-    msg = myQisDevice.sendCommand ("stream mode power total enable")
-    if (msg != "OK"):
-        print ("Failed to set total power record mode: " + msg)
-    # Ensure the latest level of header is requested so PPM and PAM data format is the same in the CSV
-    msg = myQisDevice.sendCommand ("stream mode header v3")
-    if (msg != "OK"):
-        print ("Failed to set software resampling: " + msg)
-
 
     print ("-Recording data...")
     # Start a stream, using the local folder of the script and a time-stamp file name in this example
-    fileName = "RawData100us.csv"        
-    myQisDevice.startStream (streamPath + "\\" + fileName, 2000, 'Example stream to file with 2000Mb limit',separator=",")
+    file_name = "RawData100us.csv"
+    my_power_device.start_stream (stream_path + "\\" + file_name)
            
     # Wait for a few seconds to record data then stop the stream     
-    for x in range(5):
-        time.sleep(1)
-        print (".")
-    
-    print ("-Stopping recording")
-    start = timer()
-    myQisDevice.stopStream()    
-    end = timer()
-    print(str((end - start)) + " Seconds to save the stream")
+    visual_sleep(10, title="Recording at 100uS")    # VGives you a visual indication of the delay time
 
-    print ("-Closing module")
-    myQisDevice.closeConnection()
+    # INSERT YOUR CODE HERE?
+    # Instead of just sleeping, you can run workloads to your drive or any other action required to complete the test
+    # The data will continue to be streamed to file in the background
 
-    # Request raw CSV data from the stream, into the local folder (NOTE: current QPS does not support spaces in the export path)
-    rawOutputPath = streamPath + "\\RawData100us.csv"        
+    # Check the stream status, so we know if anything went wrong during the capture period
+    # This is not essential, but some tests may need you to ensure that all data across the
+    # full stream period has been captured correctly
+    print("Checking the stream is running (all data has been captured)")
+    stream_status = my_power_device.streamRunningStatus()
+    if "running" not in stream_status:
+        print("\tStream terminated early: " + stream_status)
+    else:
+        print("\tStream ran correctly across the full test")
 
-    # Run the post process step.  The first one is purely for the stats calculations, as we alredy have it in the correct sample rate
-    print ("-Post processing step 1")
-    post_process_resample (rawOutputPath, 1, streamPath + "\\PostData100us.csv")
-    print ("-Post processing step 2")
-    post_process_resample (rawOutputPath, 5, streamPath + "\\PostData500us.csv")
-    print ("-Post processing step 3")
-    post_process_resample (rawOutputPath, 10, streamPath + "\\PostData1ms.csv")
-    showDialog("End of test.")
-    closeQis()
+    # Stop the stream.  This function is blocking and will wait until all remaining data has
+    # been downloaded from the module. This may take a couple of seconds.
+    print("\nStopping the stream...")
+    my_power_device.stopStream()
 
-# Post process and resample the CSV file (for now assuming all data is in one file, v1.09 maxes out at 100k lines right now in a single file, this limit will be removed in the next version)    
-# Assumes standard channels are enabled for this example, this could be automated by parsing the stream header to see the record channels
-def post_process_resample (raw_file_path, resample_count, output_file_path):    
+    # Request raw CSV data from the stream, into the local folder
+    raw_output_path = stream_path + "\\RawData100us.csv"
+
+    # Run the post-process step.  The first one is purely for the stats calculations, as we already have it in the correct sample rate
+    print ("-Post processing step 1 - Calc Stats")
+    post_process_resample (raw_output_path, 1, stream_path + "\\PostData100us.csv")
+    print ("-Post processing step 2 - Resample to 500uS")
+    post_process_resample (raw_output_path, 5, stream_path + "\\PostData500us.csv")
+    print ("-Post processing step 3 - Resample to 1mS")
+    post_process_resample (raw_output_path, 10, stream_path + "\\PostData1ms.csv")
+
+    print ("\nAll processing complete!\n\n")
+
+    if close_qis_at_end_of_test:
+        closeQis()
+
+def post_process_resample (raw_file_path: str, resample_count: int, output_file_path: str) -> None:
+    """
+    Post process and resamples a CSV file output by combining multiple stripes of data into one
+    Assumes standard PPM channels are enabled for this quick example.  The resample process uses
+    averaging to ensure that
+
+    We also calculate the maximum, minimum and average values for each channel and write them
+    to the bottom of the output file
+
+    Args:
+        raw_file_path:
+            Input file path to read
+        resample_count:
+            Number of stripes to combine into one
+        output_file_path:
+            New output file path to create
+    Returns:
+
+    """
     # Init variables
-    headerLines = 0
-    stripeCount = 0
-    dilimiter = ","
+    header_lines = 0
+    stripe_count = 0
+    delimiter = ","
     number_of_columns = 9
     averaged_stripe_count = 0
     # Storage for the accumulating data (9 columns of data)
-    procData = [0,0,0,0,0,0,0,0,0]
+    proc_data = [0,0,0,0,0,0,0,0,0]
     # Storage for the summary data (8 columns as time is note processed)
-    maxData = [0,0,0,0,0,0,0,0]
-    minData = [999999,999999,999999,999999,999999,999999,999999,999999]
-    aveData = [0,0,0,0,0,0,0,0]
+    max_data = [0,0,0,0,0,0,0,0]
+    min_data = [999999,999999,999999,999999,999999,999999,999999,999999]
+    ave_data = [0,0,0,0,0,0,0,0]
     # Open both the input and output files in appropriate access modes
     with open(raw_file_path, 'r') as rawFile:
         with open (output_file_path, 'w') as postFile:
             # Iterate through all input files
             for fileLine in rawFile:
-                # headerline is unique, copy it directly
-                if (headerLines < 2):
+                # The header line is unique, copy it directly
+                if header_lines < 2:
                     postFile.write (fileLine + "\n")
-                    headerLines = headerLines + 1
+                    header_lines = header_lines + 1
                     continue
 
                 # Accumulate the required number of lines                
-                lineSections = fileLine.split(dilimiter)
+                line_sections = fileLine.split(delimiter)
                 # Update to the latest time point
-                procData[0] = lineSections[0]
+                proc_data[0] = line_sections[0]
                 # Sum the values for all other columns
                 for i in range (1, number_of_columns):                                    
-                    procData[i] += int(lineSections[i])
-                stripeCount += 1
+                    proc_data[i] += int(line_sections[i])
+                stripe_count += 1
 
                 # When we have enough data to complete one output line we can process it
-                if (stripeCount == resample_count):
+                if stripe_count == resample_count:
                     # Track the number of output stripes
                     averaged_stripe_count += 1
 
-                    # Divide down the averaged colums to get the final result
+                    # Divide down the averaged columns to get the final result
                     for i in range (1, number_of_columns):                                    
-                        procData[i] /= resample_count
+                        proc_data[i] /= resample_count
                     # Generate the single line for the output file
-                    outStr = dilimiter.join (str(x) for x in procData)
-                    postFile.write (outStr + "\n")
+                    out_str = delimiter.join (str(x) for x in proc_data)
+                    postFile.write (out_str + "\n")
                     # Track maximums
                     for i in range (1, number_of_columns):       
-                        if (procData[i] > maxData[i-1]):
-                            maxData[i-1] = procData[i]
+                        if proc_data[i] > max_data[i - 1]:
+                            max_data[i-1] = proc_data[i]
                     # Track minimums
                     for i in range (1, number_of_columns):
-                        if (procData[i] < minData[i-1]):
-                            minData[i-1] = procData[i]
+                        if proc_data[i] < min_data[i - 1]:
+                            min_data[i-1] = proc_data[i]
                     # Track averages (Note: large datasets may overflow this simple averaging mechanism)
                     for i in range (1, number_of_columns):                       
-                        aveData[i-1] += procData[i]
+                        ave_data[i-1] += proc_data[i]
 
                     # Reset the accumulating data buffer
-                    procData = [0,0,0,0,0,0,0,0,0]    
-                    stripeCount = 0
+                    proc_data = [0,0,0,0,0,0,0,0,0]
+                    stripe_count = 0
 
             # Complete the calculation of the average values
             for i in range (1, number_of_columns):                       
-                aveData[i-1] /= averaged_stripe_count
+                ave_data[i-1] /= averaged_stripe_count
 
             # Add the stats data to the bottom of the output file
             postFile.write ("\n\nSTATISTICS\n")
-            postFile.write ("MAX," + dilimiter.join(str(x) for x in maxData) + "\n")
-            postFile.write ("MIN," + dilimiter.join(str(x) for x in minData) + "\n")
-            postFile.write ("AVE," + dilimiter.join(str(x) for x in aveData) + "\n")
-
-
+            postFile.write ("MAX," + delimiter.join(str(x) for x in max_data) + "\n")
+            postFile.write ("MIN," + delimiter.join(str(x) for x in min_data) + "\n")
+            postFile.write ("AVE," + delimiter.join(str(x) for x in ave_data) + "\n")
 
 if __name__=="__main__":
     main()
